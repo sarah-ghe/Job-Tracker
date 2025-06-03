@@ -23,9 +23,9 @@ const Login = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // Basic validation
+    // Validation de base
     if (!formData.email || !formData.password) {
-      setError("All fields are required");
+      setError("Tous les champs sont requis");
       return;
     }
 
@@ -33,26 +33,31 @@ const Login = () => {
     setError("");
 
     try {
-      // Here we would normally make an API call
-      // For now, we'll simulate a successful login
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Appel à la fonction login du contexte d'authentification
+      // qui utilise maintenant notre service API
+      await login(formData.email, formData.password);
       
-      // Mock user data and token
-      const userData = {
-        id: "123",
-        email: formData.email,
-        username: formData.email.split('@')[0],
-      };
-      const token = "mock-jwt-token";
-      
-      // Call the login function from our auth context
-      login(userData, token);
-      
-      // Redirect to profile page after successful login
-      navigate("/profile");
+      // Redirection vers le tableau de bord après connexion réussie
+      navigate("/dashboard");
     } catch (err) {
-      setError("Invalid email or password");
-      console.error("Login error:", err);
+      // Gestion des différents types d'erreurs
+      if (err.response) {
+        // Le serveur a répondu avec un code d'erreur
+        if (err.response.status === 401) {
+          setError("Email ou mot de passe incorrect");
+        } else if (err.response.data && err.response.data.detail) {
+          setError(err.response.data.detail);
+        } else {
+          setError("Une erreur s'est produite lors de la connexion");
+        }
+      } else if (err.request) {
+        // La requête a été faite mais pas de réponse
+        setError("Impossible de contacter le serveur. Vérifiez votre connexion internet.");
+      } else {
+        // Erreur lors de la configuration de la requête
+        setError("Une erreur s'est produite. Veuillez réessayer.");
+      }
+      console.error("Erreur de connexion:", err);
     } finally {
       setIsLoading(false);
     }

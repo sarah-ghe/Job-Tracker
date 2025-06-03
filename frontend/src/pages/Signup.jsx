@@ -1,8 +1,10 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
 
 const Signup = () => {
   const navigate = useNavigate();
+  const { signup } = useAuth();
   const [formData, setFormData] = useState({
     username: "",
     email: "",
@@ -43,17 +45,40 @@ const Signup = () => {
     setError("");
 
     try {
-      // Ici, nous simulerons l'appel API pour l'instant
-      // Plus tard, nous implémenterons la vraie connexion au backend
-      console.log("Données d'inscription:", formData);
+      // Préparation des données pour l'API
+      const userData = {
+        username: formData.username,
+        email: formData.email,
+        password: formData.password
+      };
 
-      // Simuler un délai d'API
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // Rediriger vers la page de connexion après inscription réussie
-      navigate("/login");
+      // Appel à la fonction signup du contexte d'authentification
+      await signup(userData);
+      
+      // Redirection vers la page de connexion après inscription réussie
+      navigate("/login", { 
+        state: { 
+          message: "Inscription réussie ! Vous pouvez maintenant vous connecter." 
+        } 
+      });
     } catch (err) {
-      setError("Erreur lors de l'inscription. Veuillez réessayer.");
+      // Gestion des différents types d'erreurs
+      if (err.response) {
+        // Le serveur a répondu avec un code d'erreur
+        if (err.response.status === 400 && err.response.data.detail) {
+          setError(err.response.data.detail);
+        } else if (err.response.data && err.response.data.detail) {
+          setError(err.response.data.detail);
+        } else {
+          setError("Une erreur s'est produite lors de l'inscription");
+        }
+      } else if (err.request) {
+        // La requête a été faite mais pas de réponse
+        setError("Impossible de contacter le serveur. Vérifiez votre connexion internet.");
+      } else {
+        // Erreur lors de la configuration de la requête
+        setError("Une erreur s'est produite. Veuillez réessayer.");
+      }
       console.error("Erreur d'inscription:", err);
     } finally {
       setIsLoading(false);

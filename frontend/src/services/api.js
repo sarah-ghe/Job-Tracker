@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-// Create an axios instance with base URL
-const API_URL = 'http://localhost:8000'; // Adjust this to your backend URL
+// 1. Création d'une instance axios avec une configuration de base
+const API_URL = 'http://localhost:8000'; // L'URL de votre backend FastAPI
 
 const api = axios.create({
     baseURL: API_URL,
@@ -10,10 +10,13 @@ const api = axios.create({
     },
 });
 
-// Add a request interceptor to include the auth token in requests
+// 2. Intercepteur pour ajouter automatiquement le token d'authentification à chaque requête
 api.interceptors.request.use(
     (config) => {
+        // Récupération du token depuis le localStorage
         const token = localStorage.getItem('token');
+
+        // Si un token existe, l'ajouter à l'en-tête Authorization
         if (token) {
             config.headers['Authorization'] = `Bearer ${token}`;
         }
@@ -24,35 +27,101 @@ api.interceptors.request.use(
     }
 );
 
-// Auth services
+// 3. Intercepteur pour gérer les réponses et les erreurs globalement
+api.interceptors.response.use(
+    (response) => {
+        // Traitement des réponses réussies
+        return response;
+    },
+    (error) => {
+        // Gestion des erreurs de réponse
+        if (error.response && error.response.status === 401) {
+            // Si le serveur renvoie une erreur 401 (non autorisé), déconnecter l'utilisateur
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            // Rediriger vers la page de connexion si nécessaire
+            window.location.href = '/login';
+        }
+        return Promise.reject(error);
+    }
+);
+
+// 4. Services d'authentification
 export const authService = {
+    // Connexion utilisateur
     login: async (email, password) => {
-        const response = await api.post('/token', { username: email, password });
+        // FastAPI utilise généralement 'username' pour l'authentification OAuth
+        const response = await api.post('/token', new URLSearchParams({
+            username: email,
+            password: password
+        }), {
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+        });
         return response.data;
     },
 
+    // Inscription utilisateur
     signup: async (userData) => {
         const response = await api.post('/users/', userData);
         return response.data;
     },
 
+    // Récupération des informations de l'utilisateur connecté
     getCurrentUser: async () => {
         const response = await api.get('/users/me');
         return response.data;
     },
 };
 
-// User profile services
+// 5. Services pour les jobs
+export const jobService = {
+    // Récupérer tous les jobs
+    getAllJobs: async (page = 1, limit = 10) => {
+        const response = await api.get(`/jobs/?page=${page}&limit=${limit}`);
+        return response.data;
+    },
+
+    // Récupérer un job spécifique
+    getJob: async (id) => {
+        const response = await api.get(`/jobs/${id}`);
+        return response.data;
+    },
+
+    // Créer un nouveau job
+    createJob: async (jobData) => {
+        const response = await api.post('/jobs/', jobData);
+        return response.data;
+    },
+
+    // Mettre à jour un job
+    updateJob: async (id, jobData) => {
+        const response = await api.put(`/jobs/${id}`, jobData);
+        return response.data;
+    },
+
+    // Supprimer un job
+    deleteJob: async (id) => {
+        const response = await api.delete(`/jobs/${id}`);
+        return response.data;
+    },
+};
+
+// 6. Services pour le profil utilisateur
 export const userService = {
+    // Récupérer le profil
     getProfile: async () => {
         const response = await api.get('/users/me');
         return response.data;
     },
 
+    // Mettre à jour le profil
     updateProfile: async (userData) => {
         const response = await api.put('/users/me', userData);
         return response.data;
     },
 };
 
+// Exporter l'instance api par défaut pour d'autres utilisations si nécessaire
 export default api;
