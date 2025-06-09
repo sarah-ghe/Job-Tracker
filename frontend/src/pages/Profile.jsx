@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import { userService } from "../services/api";
 
 const Profile = () => {
     const navigate = useNavigate();
@@ -19,26 +20,34 @@ const Profile = () => {
     const [message, setMessage] = useState({ text: "", type: "" });
 
     useEffect(() => {
-        if (currentUser) {
-            setProfileData({
-                username: currentUser.username || "",
-                email: currentUser.email || "",
-            });
-        }
+        const fetchProfileData = async () => {
+            if (!currentUser) {
+                navigate("/login");
+                return;
+            }
 
-        // Simulate API call to get user profile
-        setTimeout(() => {
-            setProfileData({
-                username: "johndoe",
-                email: "john.doe@example.com",
-                firstName: "John",
-                lastName: "Doe",
-                bio: "Experienced software developer looking for new opportunities",
-                location: "Paris, France",
-            });
-            setIsLoading(false);
-        }, 1000);
-    }, [currentUser]);
+            try {
+                // Récupérer les données du profil depuis l'API
+                const userData = await userService.getProfile();
+                
+                setProfileData({
+                    username: userData.username || "",
+                    email: userData.email || "",
+                    firstName: userData.first_name || "",
+                    lastName: userData.last_name || "",
+                    bio: userData.bio || "",
+                    location: userData.location || "",
+                });
+            } catch (err) {
+                console.error("Erreur lors de la récupération du profil:", err);
+                setError("Impossible de charger les données du profil");
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        fetchProfileData();
+    }, [currentUser, navigate]);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -53,14 +62,28 @@ const Profile = () => {
         setIsLoading(true);
 
         try {
-            // Simulate API call to update profile
-            await new Promise((resolve) => setTimeout(resolve, 1000));
+            // Préparer les données à envoyer à l'API
+            const updateData = {
+                username: profileData.username,
+                first_name: profileData.firstName,
+                last_name: profileData.lastName,
+                bio: profileData.bio,
+                location: profileData.location,
+            };
 
-            setMessage({ text: "Profile updated successfully!", type: "success" });
+            // Appel à l'API pour mettre à jour le profil
+            await userService.updateProfile(updateData);
+
+            setMessage({ text: "Profil mis à jour avec succès !", type: "success" });
             setIsEditing(false);
         } catch (err) {
-            setMessage({ text: "Failed to update profile.", type: "error" });
-            console.error("Profile update error:", err);
+            console.error("Erreur lors de la mise à jour du profil:", err);
+            
+            if (err.response && err.response.data && err.response.data.detail) {
+                setMessage({ text: err.response.data.detail, type: "error" });
+            } else {
+                setMessage({ text: "Échec de la mise à jour du profil", type: "error" });
+            }
         } finally {
             setIsLoading(false);
         }

@@ -2,6 +2,60 @@ from fastapi import HTTPException
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from . import models, schemas
+from passlib.context import CryptContext
+from datetime import datetime
+
+# Configuration pour le hachage des mots de passe
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# Fonctions pour les utilisateurs
+def get_user(db: Session, user_id: int):
+    return db.query(models.User).filter(models.User.id == user_id).first()
+
+def get_user_by_email(db: Session, email: str):
+    return db.query(models.User).filter(models.User.email == email).first()
+
+def get_user_by_username(db: Session, username: str):
+    return db.query(models.User).filter(models.User.username == username).first()
+
+def get_users(db: Session, skip: int = 0, limit: int = 100):
+    return db.query(models.User).offset(skip).limit(limit).all()
+
+def create_user(db: Session, user: schemas.UserCreate):
+    hashed_password = pwd_context.hash(user.password)
+    db_user = models.User(
+        username=user.username,
+        email=user.email,
+        hashed_password=hashed_password
+    )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+
+def update_user(db: Session, user_id: int, user_data: schemas.UserUpdate):
+    db_user = db.query(models.User).filter(models.User.id == user_id).first()
+    if db_user:
+        update_data = user_data.dict(exclude_unset=True)
+        update_data["updated_at"] = datetime.utcnow()
+        
+        for key, value in update_data.items():
+            setattr(db_user, key, value)
+            
+        db.commit()
+        db.refresh(db_user)
+    return db_user
+
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def authenticate_user(db: Session, username: str, password: str):
+    user = get_user_by_username(db, username)
+    if not user:
+        return False
+    if not verify_password(password, user.hashed_password):
+        return False
+    return user
 
 def get_jobs(db: Session, skip: int = 0, limit: int = 10):
     total = db.query(models.Job).count()  # total jobs

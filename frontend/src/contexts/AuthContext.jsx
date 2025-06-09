@@ -1,95 +1,92 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
-import { authService } from '../services/api';
+import React, { createContext, useState, useContext, useEffect } from "react";
+import { authService } from "../services/api";
 
-// Create the context
+// Création du contexte d'authentification
 const AuthContext = createContext();
 
-// Custom hook to use the auth context
+// Hook personnalisé pour utiliser le contexte d'authentification
 export const useAuth = () => useContext(AuthContext);
 
-// Provider component
 export const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
+  const [token, setToken] = useState(localStorage.getItem("token"));
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Check if user is logged in on initial load
+  // Vérifier si l'utilisateur est déjà connecté au chargement de l'application
   useEffect(() => {
-    const checkAuthStatus = async () => {
-      const token = localStorage.getItem('token');
+    const checkUserLoggedIn = async () => {
+      const storedToken = localStorage.getItem("token");
       
-      if (token) {
+      if (storedToken) {
         try {
-          // Try to fetch user data with the stored token
+          // Récupérer les informations de l'utilisateur à partir du token
           const userData = await authService.getCurrentUser();
           setCurrentUser(userData);
-        } catch (error) {
-          console.error('Failed to fetch user data:', error);
-          // If the token is invalid, remove it
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
+        } catch (err) {
+          console.error("Erreur lors de la récupération des données utilisateur:", err);
+          // Si le token est invalide ou expiré, déconnecter l'utilisateur
+          logout();
         }
       }
       
       setLoading(false);
     };
-    
-    checkAuthStatus();
+
+    checkUserLoggedIn();
   }, []);
 
-  // Login function
+  // Fonction de connexion
   const login = async (email, password) => {
     try {
-      // Call the authentication service
+      // Appel à l'API pour se connecter
       const response = await authService.login(email, password);
       
-      // Store the token
-      localStorage.setItem('token', response.access_token);
+      // Stocker le token dans le localStorage
+      localStorage.setItem("token", response.access_token);
+      setToken(response.access_token);
       
-      // Fetch user data after successful login
+      // Récupérer les informations de l'utilisateur
       const userData = await authService.getCurrentUser();
-      
-      // Store user data
-      localStorage.setItem('user', JSON.stringify(userData));
       setCurrentUser(userData);
       
       return userData;
     } catch (error) {
-      console.error('Login error:', error);
+      setError(error.message || "Erreur lors de la connexion");
       throw error;
     }
   };
 
-  // Signup function
+  // Fonction d'inscription
   const signup = async (userData) => {
     try {
-      // Call the signup service
+      // Appel à l'API pour créer un compte
       const response = await authService.signup(userData);
       return response;
     } catch (error) {
-      console.error('Signup error:', error);
+      setError(error.message || "Erreur lors de l'inscription");
       throw error;
     }
   };
 
-  // Logout function
+  // Fonction de déconnexion
   const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    // Supprimer le token du localStorage
+    localStorage.removeItem("token");
+    setToken(null);
     setCurrentUser(null);
   };
 
-  // Context value
+  // Valeur du contexte à fournir aux composants enfants
   const value = {
     currentUser,
+    token,
+    loading,
+    error,
     login,
-    logout,
     signup,
-    isAuthenticated: !!currentUser
+    logout,
   };
 
-  return (
-    <AuthContext.Provider value={value}>
-      {!loading && children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

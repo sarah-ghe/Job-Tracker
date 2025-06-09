@@ -1,5 +1,5 @@
-from pydantic import BaseModel, Field
-from typing import List
+from pydantic import BaseModel, EmailStr, Field
+from typing import Optional, List
 from datetime import datetime
 
 # 🔹 Catégories
@@ -42,3 +42,39 @@ class JobList(BaseModel):
 # 🔹 Messages simples
 class Message(BaseModel):
     message: str
+
+# Schémas pour l'authentification et les utilisateurs
+class UserBase(BaseModel):
+    username: str
+    email: EmailStr
+
+class UserCreate(UserBase):
+    password: str
+
+class UserUpdate(BaseModel):
+    username: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    bio: Optional[str] = None
+    location: Optional[str] = None
+
+class User(UserBase):
+    id: int
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    bio: Optional[str] = None
+    location: Optional[str] = None
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {
+        "from_attributes": True
+    }
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class TokenData(BaseModel):
+    username: Optional[str] = None

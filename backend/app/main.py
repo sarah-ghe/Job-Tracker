@@ -1,14 +1,14 @@
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query, status
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy import or_
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 from .database import engine, SessionLocal
-from . import models, schemas, crud
+from . import models, schemas, crud, security
 from typing import Optional, List
 from fastapi.middleware.cors import CORSMiddleware
-
+from datetime import timedelta
 
 # Créer les tables dans la base de données
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
@@ -21,6 +21,9 @@ app.add_middleware(
     allow_headers=["*"],  # 👈 autorise tous les headers
 )
 
+# Configuration OAuth2
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
 @app.get("/")
 def root():
     return {"message": "Bienvenue sur ton premier projet FastAPI 🚀"}
@@ -32,6 +35,58 @@ def get_db():
         yield db
     finally:
         db.close()
+
+# Dependency pour obtenir l'utilisateur actuel
+async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    token_data = security.verify_token(token, credentials_exception)
+    user = crud.get_user_by_username(db, username=token_data.username)
+    if user is None:
+        raise credentials_exception
+    return user
+
+# Endpoints d'authentification
+@app.post("/token", response_model=schemas.Token)
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = crud.authenticate_user(db, form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=security.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = security.create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.post("/users/", response_model=schemas.User)
+def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
+    db_user_email = crud.get_user_by_email(db, email=user.email)
+    if db_user_email:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    db_user_username = crud.get_user_by_username(db, username=user.username)
+    if db_user_username:
+        raise HTTPException(status_code=400, detail="Username already taken")
+    
+    return crud.create_user(db=db, user=user)
+
+@app.get("/users/me", response_model=schemas.User)
+async def read_users_me(current_user: models.User = Depends(get_current_user)):
+    return current_user
+
+@app.put("/users/me", response_model=schemas.User)
+async def update_user(user_update: schemas.UserUpdate, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    updated_user = crud.update_user(db, user_id=current_user.id, user_update=user_update)
+    if updated_user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return updated_user
 
 # ✅ CREATE JOB
 @app.post("/jobs/", response_model=schemas.Job)
