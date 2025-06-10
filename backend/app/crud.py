@@ -1,22 +1,26 @@
 from fastapi import HTTPException
-from sqlalchemy import or_
+from sqlalchemy import or_, desc
 from sqlalchemy.orm import Session
 from . import models, schemas
-from passlib.context import CryptContext
+from .security import pwd_context, verify_password
+from typing import List, Optional
 from datetime import datetime
 
 # Configuration pour le hachage des mots de passe
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Fonctions pour les utilisateurs
 def get_user(db: Session, user_id: int):
-    return db.query(models.User).filter(models.User.id == user_id).first()
+    return get_user_by_id(db, user_id)
 
 def get_user_by_email(db: Session, email: str):
     return db.query(models.User).filter(models.User.email == email).first()
 
 def get_user_by_username(db: Session, username: str):
     return db.query(models.User).filter(models.User.username == username).first()
+
+def get_user_by_id(db: Session, user_id: int):
+    return db.query(models.User).filter(models.User.id == user_id).first()
 
 def get_users(db: Session, skip: int = 0, limit: int = 100):
     return db.query(models.User).offset(skip).limit(limit).all()
@@ -33,17 +37,17 @@ def create_user(db: Session, user: schemas.UserCreate):
     db.refresh(db_user)
     return db_user
 
-def update_user(db: Session, user_id: int, user_data: schemas.UserUpdate):
-    db_user = db.query(models.User).filter(models.User.id == user_id).first()
-    if db_user:
-        update_data = user_data.dict(exclude_unset=True)
-        update_data["updated_at"] = datetime.utcnow()
-        
-        for key, value in update_data.items():
-            setattr(db_user, key, value)
-            
-        db.commit()
-        db.refresh(db_user)
+def update_user(db: Session, user_id: int, user_update: schemas.UserUpdate):
+    db_user = get_user_by_id(db, user_id)
+    if not db_user:
+        return None
+    
+    # Update user fields
+    for key, value in user_update.dict(exclude_unset=True).items():
+        setattr(db_user, key, value)
+    
+    db.commit()
+    db.refresh(db_user)
     return db_user
 
 def verify_password(plain_password, hashed_password):
@@ -57,39 +61,102 @@ def authenticate_user(db: Session, username: str, password: str):
         return False
     return user
 
-def get_jobs(db: Session, skip: int = 0, limit: int = 10):
-    total = db.query(models.Job).count()  # total jobs
-    jobs = db.query(models.Job).offset(skip).limit(limit).all()  # paginated
-    return {"total": total, "jobs": jobs}
+# Job operations
+def get_jobs(db: Session, skip: int = 0, limit: int = 10, user_id: Optional[int] = None):
+    query = db.query(models.Job)
+    
+    # Filter by user if user_id is provided
+    if user_id:
+        query = query.filter(models.Job.owner_id == user_id)
+    
+    # Get total count before pagination
+    total = query.count()
+    
+    # Apply pagination
+    jobs = query.order_by(desc(models.Job.date_posted)).offset(skip).limit(limit).all()
+    
+    return {
+        "items": jobs,
+        "total": total,
+        "skip": skip,
+        "limit": limit
+    }
 
-def get_job_by_id(db: Session, job_id:int):
+def get_job_by_id(db: Session, job_id: int):
     return db.query(models.Job).filter(models.Job.id == job_id).first()
 
-def create_job(db: Session, job: schemas.JobCreate):
-    db_job = models.Job(title=job.title, company=job.company, category_id=job.category_id)
+def create_job(db: Session, job: schemas.JobCreate, user_id: int):
+    db_job = models.Job(
+        title=job.title,
+        company=job.company,
+        location=job.location,
+        description=job.description,
+        salary=job.salary,
+        url=job.url,
+        status=job.status,
+        notes=job.notes,
+        category_id=job.category_id,
+        owner_id=user_id
+    )
     db.add(db_job)
     db.commit()
     db.refresh(db_job)
     return db_job
 
-def delete_job(db: Session, job_id:int):
-    job = db.query(models.Job).filter(models.Job.id == job_id).first()
-    if job is None:
+def update_job(db: Session, job_id: int, job: schemas.JobCreate):
+    db_job = get_job_by_id(db, job_id)
+    if not db_job:
         return None
-    db.delete(job)
+    
+    # Update job fields
+    for key, value in job.dict().items():
+        setattr(db_job, key, value)
+    
     db.commit()
-    return job
+    db.refresh(db_job)
+    return db_job
 
-def update_job(db: Session, job_id: int, job_data: schemas.JobCreate):
-    job = db.query(models.Job).filter(models.Job.id == job_id).first()
-    if job is None:
+def delete_job(db: Session, job_id: int):
+    db_job = get_job_by_id(db, job_id)
+    if not db_job:
         return None
-    job.title = job_data.title
-    job.company = job_data.company
-    job.category_id = job_data.category_id
+    
+    db.delete(db_job)
     db.commit()
-    db.refresh(job)
-    return job
+    return db_job
+
+# Category operations
+def get_categories(db: Session):
+    return db.query(models.Category).all()
+
+def get_category_by_id(db: Session, category_id: int):
+    return db.query(models.Category).filter(models.Category.id == category_id).first()
+
+def create_category(db: Session, category: schemas.CategoryCreate):
+    db_category = models.Category(name=category.name)
+    db.add(db_category)
+    db.commit()
+    db.refresh(db_category)
+    return db_category
+
+def update_category(db: Session, category_id: int, category_data: schemas.CategoryCreate):
+    db_category = get_category_by_id(db, category_id)
+    if not db_category:
+        return None
+    
+    db_category.name = category_data.name
+    db.commit()
+    db.refresh(db_category)
+    return db_category
+
+def delete_category(db: Session, category_id: int):
+    db_category = get_category_by_id(db, category_id)
+    if not db_category:
+        return None
+    
+    db.delete(db_category)
+    db.commit()
+    return db_category
 
 def search_jobs(db: Session, title: str = None, company: str = None, search: str = None):
     query = db.query(models.Job)
@@ -106,33 +173,3 @@ def search_jobs(db: Session, title: str = None, company: str = None, search: str
             )
         )
     return query.all()
-
-def create_category(db: Session, category: schemas.CategoryCreate):
-    db_category = models.Category(name=category.name)
-    db.add(db_category)
-    db.commit()
-    db.refresh(db_category)
-    return db_category
-
-def get_categories(db: Session):
-    return db.query(models.Category).all()
-
-def get_category_by_id(db: Session, category_id:int):
-    return db.query(models.Category).filter(models.Category.id == category_id).first()
-
-def delete_category(db: Session, category_id:int):
-    category = get_category_by_id(db, category_id)
-    if category is None:
-        return None
-    db.delete(category)
-    db.commit()
-    return category
-
-def update_category(db: Session, category_id: int, category_data: schemas.CategoryCreate):
-    category = get_category_by_id(db, category_id)
-    if category is None:
-        return None
-    category.name = category_data.name
-    db.commit()
-    db.refresh(category)
-    return category
