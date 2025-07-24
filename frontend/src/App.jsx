@@ -5,6 +5,7 @@ import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Profile from './pages/Profile';
 import Navbar from './components/Navbar';
+import Dashboard from './pages/Dashboard';
 import ProtectedRoute from './components/ProtectedRoute';
 import { AuthProvider } from './contexts/AuthContext';
 
@@ -19,6 +20,7 @@ const App = () => {
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
             <Route path="/profile" element={<ProtectedRoute element={<Profile />} />} />
+            <Route path="/dashboard" element={<ProtectedRoute element={<Dashboard />} />} />
           </Routes>
         </div>
       </div>

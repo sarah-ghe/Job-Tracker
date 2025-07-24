@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, Float
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .database import Base
@@ -19,7 +19,6 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # Relation avec les jobs (si vous souhaitez associer des jobs à des utilisateurs)
     jobs = relationship("Job", back_populates="owner", cascade="all, delete-orphan")
 
 class Job(Base):
@@ -28,20 +27,21 @@ class Job(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, index=True)
     company = Column(String, index=True)
-    location = Column(String)
+    location = Column(String, nullable=True)
     description = Column(Text, nullable=True)
-    salary = Column(String, nullable=True)
+    salary = Column(Float, nullable=True)
     url = Column(String, nullable=True)
     date_posted = Column(DateTime, default=datetime.utcnow)
     status = Column(String, default="applied")
     notes = Column(Text, nullable=True)
-    category_id = Column(Integer, ForeignKey("categories.id"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
-    # Ajoutez ces lignes pour la relation avec User
+    category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
     owner_id = Column(Integer, ForeignKey("users.id"))
-    owner = relationship("User", back_populates="jobs")
-    
+
     category = relationship("Category", back_populates="jobs")
+    owner = relationship("User", back_populates="jobs")
 
 class Category(Base):
     __tablename__ = "categories"

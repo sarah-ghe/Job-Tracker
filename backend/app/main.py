@@ -4,9 +4,10 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from .database import engine, SessionLocal
 from . import models, schemas, crud, security
-from typing import Optional, List
+from typing import List, Dict, Any
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import timedelta
+from jose import JWTError, jwt
 
 # Créer les tables dans la base de données
 models.Base.metadata.create_all(bind=engine)
@@ -15,10 +16,10 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 👈 autorise TOUTES les origines (pendant développement)
+    allow_origins=["*"],  # URL de frontend Vite
     allow_credentials=True,
-    allow_methods=["*"],  # 👈 autorise toutes les méthodes : GET, POST, PUT, DELETE...
-    allow_headers=["*"],  # 👈 autorise tous les headers
+    allow_methods=["*"],  # Autoriser toutes les méthodes HTTP
+    allow_headers=["*"],  # Autoriser tous les en-têtes HTTP
 )
 
 # Configuration OAuth2
@@ -40,11 +41,19 @@ def get_db():
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
+        detail="Identifiants invalides",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    token_data = security.verify_token(token, credentials_exception)
-    user = crud.get_user_by_username(db, username=token_data.username)
+    try:
+        payload = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise credentials_exception
+        token_data = schemas.TokenData(email=email)
+    except JWTError:
+        raise credentials_exception
+        
+    user = crud.get_user_by_email(db, email=token_data.email)
     if user is None:
         raise credentials_exception
     return user
@@ -52,17 +61,22 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
 # Endpoints d'authentification
 @app.post("/token", response_model=schemas.Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    # form_data.username contient en réalité l'email de l'utilisateur
     user = crud.authenticate_user(db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
+            detail="Email ou mot de passe incorrect",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    
+    # Créer le token d'accès
     access_token_expires = timedelta(minutes=security.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = security.create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
+        data={"sub": user.email},  # Utiliser l'email comme identifiant dans le token
+        expires_delta=access_token_expires
     )
+    
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.post("/users/", response_model=schemas.User)
@@ -90,45 +104,57 @@ async def update_user(user_update: schemas.UserUpdate, current_user: models.User
 
 # ✅ CREATE JOB
 @app.post("/jobs/", response_model=schemas.Job)
-def create_job(job: schemas.JobCreate, db: Session = Depends(get_db)):
+def create_job(job: schemas.JobCreate, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     # Vérifie que la catégorie existe
     category = crud.get_category_by_id(db, job.category_id)
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")
-    return crud.create_job(db, job)
+    return crud.create_job(db, job, current_user.id)
 
 # ✅ READ JOBS
-@app.get("/jobs/", response_model=schemas.JobList)
-def read_jobs(skip: int = 0, limit: int = 10, db: Session = Depends(get_db)):
-    return crud.get_jobs(db, skip=skip, limit=limit)
+@app.get("/jobs/", response_model=Dict[str, Any])
+def read_jobs(skip: int = 0, limit: int = 10, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return crud.get_jobs(db, skip=skip, limit=limit, user_id=current_user.id)
 
 # ✅ GET JOB BY ID
 @app.get("/jobs/{job_id}", response_model=schemas.Job)
-def get_job(job_id: int, db: Session = Depends(get_db)):
+def get_job(job_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     job = crud.get_job_by_id(db, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
+    # Vérifier que l'utilisateur est le propriétaire du job
+    if job.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this job")
     return job
 
 # ✅ DELETE JOB
 @app.delete("/jobs/{job_id}", response_model=schemas.Message)
-def delete_job(job_id: int, db: Session = Depends(get_db)):
-    job = crud.delete_job(db, job_id)
+def delete_job(job_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    job = crud.get_job_by_id(db, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
+    # Vérifier que l'utilisateur est le propriétaire du job
+    if job.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this job")
+    crud.delete_job(db, job_id)
     return {"message": f"Job with id {job_id} deleted successfully"}
 
 # ✅ UPDATE JOB
 @app.put("/jobs/{job_id}", response_model=schemas.Job)
-def update_job(job_id: int, job: schemas.JobCreate, db: Session = Depends(get_db)):
+def update_job(job_id: int, job: schemas.JobCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    # Vérifie que le job existe et appartient à l'utilisateur
+    existing_job = crud.get_job_by_id(db, job_id)
+    if existing_job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if existing_job.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to update this job")
+    
     # Vérifie que la nouvelle catégorie existe
     category = crud.get_category_by_id(db, job.category_id)
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")
     
     updated_job = crud.update_job(db, job_id, job)
-    if updated_job is None:
-        raise HTTPException(status_code=404, detail="Job not found")
     return updated_job
 
 @app.get("/jobs/search", response_model=List[schemas.Job])
@@ -140,9 +166,10 @@ def search_jobs(
     sort_order: str = Query(default="asc", enum=["asc", "desc"]),
     skip: int = 0,
     limit: int = 10,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
 ):
-    query = db.query(models.Job)
+    query = db.query(models.Job).filter(models.Job.owner_id == current_user.id)
 
     if search:
         query = query.filter(
@@ -164,15 +191,15 @@ def search_jobs(
     query = query.offset(skip).limit(limit)
     return query.all()
 
-
 @app.get("/jobs/count")
 def count_jobs(
     title: str = None,
     company: str = None,
     search: str = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
 ):
-    query = db.query(models.Job)
+    query = db.query(models.Job).filter(models.Job.owner_id == current_user.id)
 
     if search:
         query = query.filter(
@@ -189,16 +216,13 @@ def count_jobs(
     total = query.count()
     return {"total_jobs": total}
 
-
 @app.post("/categories/", response_model=schemas.Category)
 def create_category(category: schemas.CategoryCreate, db: Session = Depends(get_db)):
     return crud.create_category(db, category)
 
-
 @app.get("/categories/", response_model=List[schemas.Category])
 def read_categories(db: Session = Depends(get_db)):
     return crud.get_categories(db)
-
 
 @app.get("/categories/{category_id}", response_model=schemas.Category)
 def get_category(category_id: int, db: Session = Depends(get_db)):
@@ -207,14 +231,12 @@ def get_category(category_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Category not found")
     return category
 
-
 @app.delete("/categories/{category_id}", response_model=schemas.Message)
 def delete_category(category_id: int, db: Session = Depends(get_db)):
     category = crud.delete_category(db, category_id)
     if category is None:
         raise HTTPException(status_code=404, detail="Category not found")
     return {"message": f"Category with id {category_id} deleted successfully"}
-
 
 @app.put("/categories/{category_id}", response_model=schemas.Category)
 def update_category(category_id: int, category_data: schemas.CategoryCreate, db: Session = Depends(get_db)):

@@ -2,9 +2,14 @@ from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List
 from datetime import datetime
 
+# Configuration pour la conversion des modèles SQLAlchemy en modèles Pydantic
+model_config = {
+    "from_attributes": True
+}
+
 # 🔹 Catégories
 class CategoryBase(BaseModel):
-    name: str = Field(..., min_length=2, max_length=50)
+    name: str
 
 class CategoryCreate(CategoryBase):
     pass
@@ -12,9 +17,7 @@ class CategoryCreate(CategoryBase):
 class Category(CategoryBase):
     id: int
 
-    model_config = {
-        "from_attributes": True
-    }
+    model_config = model_config
 
 # 🔹 Jobs
 class JobBase(BaseModel):
@@ -30,9 +33,7 @@ class Job(JobBase):
     category_id: int
     category: Category  # 🔁 Retourne l'objet complet de la catégorie
 
-    model_config = {
-        "from_attributes": True
-    }
+    model_config = model_config
 
 # 🔹 Liste paginée de jobs
 class JobList(BaseModel):
@@ -47,6 +48,10 @@ class Message(BaseModel):
 class UserBase(BaseModel):
     username: str
     email: EmailStr
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    bio: Optional[str] = None
+    location: Optional[str] = None
 
 class UserCreate(UserBase):
     password: str
@@ -60,21 +65,15 @@ class UserUpdate(BaseModel):
 
 class User(UserBase):
     id: int
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    bio: Optional[str] = None
-    location: Optional[str] = None
     is_active: bool
     created_at: datetime
     updated_at: datetime
 
-    model_config = {
-        "from_attributes": True
-    }
+    model_config = model_config
 
 class Token(BaseModel):
     access_token: str
     token_type: str
 
 class TokenData(BaseModel):
-    username: Optional[str] = None
+    email: Optional[str] = None

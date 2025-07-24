@@ -46,7 +46,7 @@ const Login = () => {
         if (err.response.status === 401) {
           setError("Email ou mot de passe incorrect");
         } else if (err.response.data && err.response.data.detail) {
-          setError(err.response.data.detail);
+          setError(err.response.data.detail);  
         } else {
           setError("Une erreur s'est produite lors de la connexion");
         }

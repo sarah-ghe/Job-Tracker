@@ -2,12 +2,10 @@ from fastapi import HTTPException
 from sqlalchemy import or_, desc
 from sqlalchemy.orm import Session
 from . import models, schemas
-from .security import pwd_context, verify_password
+from .security import pwd_context
 from typing import List, Optional
 from datetime import datetime
 
-# Configuration pour le hachage des mots de passe
-# pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Fonctions pour les utilisateurs
 def get_user(db: Session, user_id: int):
@@ -30,7 +28,14 @@ def create_user(db: Session, user: schemas.UserCreate):
     db_user = models.User(
         username=user.username,
         email=user.email,
-        hashed_password=hashed_password
+        hashed_password=hashed_password,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        bio=user.bio,
+        location=user.location,
+        is_active=True,
+        created_at=datetime.now(),
+        updated_at=datetime.now()
     )
     db.add(db_user)
     db.commit()
@@ -42,10 +47,11 @@ def update_user(db: Session, user_id: int, user_update: schemas.UserUpdate):
     if not db_user:
         return None
     
-    # Update user fields
+    # Mettre à jour les champs modifiables
     for key, value in user_update.dict(exclude_unset=True).items():
         setattr(db_user, key, value)
     
+    db_user.updated_at = datetime.now()
     db.commit()
     db.refresh(db_user)
     return db_user
@@ -53,8 +59,8 @@ def update_user(db: Session, user_id: int, user_update: schemas.UserUpdate):
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
 
-def authenticate_user(db: Session, username: str, password: str):
-    user = get_user_by_username(db, username)
+def authenticate_user(db: Session, email: str, password: str):
+    user = get_user_by_email(db, email)
     if not user:
         return False
     if not verify_password(password, user.hashed_password):
@@ -69,16 +75,13 @@ def get_jobs(db: Session, skip: int = 0, limit: int = 10, user_id: Optional[int]
     if user_id:
         query = query.filter(models.Job.owner_id == user_id)
     
-    # Get total count before pagination
     total = query.count()
-    
-    # Apply pagination
-    jobs = query.order_by(desc(models.Job.date_posted)).offset(skip).limit(limit).all()
+    items = query.order_by(desc(models.Job.created_at)).offset(skip).limit(limit).all()
     
     return {
-        "items": jobs,
+        "items": items,
         "total": total,
-        "skip": skip,
+        "page": skip // limit + 1,
         "limit": limit
     }
 
@@ -96,21 +99,31 @@ def create_job(db: Session, job: schemas.JobCreate, user_id: int):
         status=job.status,
         notes=job.notes,
         category_id=job.category_id,
-        owner_id=user_id
+        owner_id=user_id,
+        created_at=datetime.now(),
+        updated_at=datetime.now()
     )
     db.add(db_job)
     db.commit()
     db.refresh(db_job)
     return db_job
 
-def update_job(db: Session, job_id: int, job: schemas.JobCreate):
+def update_job(db: Session, job_id: int, job_update: schemas.JobCreate):
     db_job = get_job_by_id(db, job_id)
     if not db_job:
         return None
     
-    # Update job fields
-    for key, value in job.dict().items():
-        setattr(db_job, key, value)
+    # Mettre à jour tous les champs
+    db_job.title = job_update.title
+    db_job.company = job_update.company
+    db_job.location = job_update.location
+    db_job.description = job_update.description
+    db_job.salary = job_update.salary
+    db_job.url = job_update.url
+    db_job.status = job_update.status
+    db_job.notes = job_update.notes
+    db_job.category_id = job_update.category_id
+    db_job.updated_at = datetime.now()
     
     db.commit()
     db.refresh(db_job)

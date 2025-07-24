@@ -78,9 +78,18 @@ export const authService = {
 // 5. Services pour les jobs
 export const jobService = {
     // Récupérer tous les jobs
-    getAllJobs: async (page = 1, limit = 10) => {
-        const response = await api.get(`/jobs/?page=${page}&limit=${limit}`);
-        return response.data;
+    getAllJobs: async (params = {}) => {
+        try {
+            const response = await api.get('/jobs/', { params });
+            return response.data;
+        } catch (error) {
+            console.error("Erreur lors de la récupération des jobs:", error);
+            // Retourner des données factices en cas d'erreur pour le développement
+            return {
+                jobs: [],
+                total: 0
+            };
+        }
     },
 
     // Récupérer un job spécifique
@@ -105,6 +114,22 @@ export const jobService = {
     deleteJob: async (id) => {
         const response = await api.delete(`/jobs/${id}`);
         return response.data;
+    },
+
+    // Récupérer toutes les catégories
+    getCategories: async () => {
+        try {
+            const response = await api.get('/categories/');
+            return response.data;
+        } catch (error) {
+            console.error("Erreur lors de la récupération des catégories:", error);
+            // Retourner des catégories factices en cas d'erreur
+            return [
+                { id: 1, name: "Développement" },
+                { id: 2, name: "Design" },
+                { id: 3, name: "Marketing" }
+            ];
+        }
     },
 };
 
